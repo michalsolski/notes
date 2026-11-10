@@ -1,0 +1,80 @@
+#include <openssl/x509.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
+#include <openssl/crypto.h>
+
+#include <string>
+#include <vector>
+#include <climits>
+
+std::string getSPKIHash(
+    const unsigned char* certData,
+    size_t certLength
+) {
+    if (!certData || certLength == 0 ||
+        certLength > LONG_MAX) {
+        return {};
+    }
+
+    const unsigned char* ptr = certData;
+
+    X509* cert = d2i_X509(
+        nullptr,
+        &ptr,
+        static_cast<long>(certLength)
+    );
+
+    if (!cert) return {};
+
+    const X509_PUBKEY* spki =
+        X509_get_X509_PUBKEY(cert);
+
+    if (!spki) {
+        X509_free(cert);
+        return {};
+    }
+
+    int length = i2d_X509_PUBKEY(
+        const_cast<X509_PUBKEY*>(spki),
+        nullptr
+    );
+
+    if (length <= 0) {
+        X509_free(cert);
+        return {};
+    }
+
+    std::vector<unsigned char> der(length);
+    unsigned char* output = der.data();
+
+    int written = i2d_X509_PUBKEY(
+        const_cast<X509_PUBKEY*>(spki),
+        &output
+    );
+
+    if (written != length) {
+        X509_free(cert);
+        return {};
+    }
+
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+
+    SHA256(der.data(), der.size(), hash);
+
+    unsigned char base64[64] = {};
+
+    int encoded = EVP_EncodeBlock(
+        base64,
+        hash,
+        SHA256_DIGEST_LENGTH
+    );
+
+    X509_free(cert);
+
+    if (encoded <= 0) return {};
+
+    return std::string(
+        reinterpret_cast<char*>(base64),
+        encoded
+    );
+}
